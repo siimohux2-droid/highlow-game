@@ -669,13 +669,24 @@
 <script>
 const INITIAL_HAND = 7;
 
-const ENEMY_TEMPLATES = [
-  { name: '通常敵 A', hp: 1, type: 'normal'  },
-  { name: '通常敵 B', hp: 1, type: 'normal'  },
-  { name: '通常敵 C', hp: 1, type: 'normal'  },
-  { name: '中ボス',   hp: 2, type: 'midboss' },
-  { name: 'ボス',     hp: 3, type: 'boss'    },
-];
+// 最大30ステージ：通常×3 → 中ボス → 通常×3 → ボス を繰り返す
+function generateEnemySequence(maxStages) {
+  const pattern = [
+    { name: '通常敵', hp: 1, type: 'normal'  },
+    { name: '通常敵', hp: 1, type: 'normal'  },
+    { name: '通常敵', hp: 1, type: 'normal'  },
+    { name: '中ボス', hp: 2, type: 'midboss' },
+    { name: '通常敵', hp: 1, type: 'normal'  },
+    { name: '通常敵', hp: 1, type: 'normal'  },
+    { name: '通常敵', hp: 1, type: 'normal'  },
+    { name: 'ボス',   hp: 3, type: 'boss'    },
+  ];
+  const result = [];
+  for (let i = 0; i < maxStages; i++) {
+    result.push({ ...pattern[i % pattern.length] });
+  }
+  return result;
+}
 
 let playerHp, deck, logs, enemyIndex, enemies, phase,
     currentPlayerCard, currentEnemyCard, isFirstTurn, plannedTurns;
@@ -685,7 +696,7 @@ function initGame() {
   deck = createDeck();
   logs = [];
   enemyIndex = 0;
-  enemies = ENEMY_TEMPLATES.map(e => ({ ...e }));
+  enemies = generateEnemySequence(30);
   phase = 'wait';
   currentPlayerCard = null;
   currentEnemyCard  = null;
@@ -919,7 +930,8 @@ function getRewardOptions(enemyCard, enemyType) {
     opts.delete(1);
     opts.delete(13);
   }
-  return [...opts].filter(v => v >= 1 && v <= 13).slice(0, 3);
+  // 重複禁止：既にデッキにあるカードを除外
+  return [...opts].filter(v => v >= 1 && v <= 13 && !deck.includes(v)).slice(0, 3);
 }
 
 function proceedToNextStage() {
@@ -934,34 +946,34 @@ function proceedToNextStage() {
 
 function showRewardScreen(enemyCard, enemy, isDraw, onDone) {
   const options   = getRewardOptions(enemyCard, enemy.type);
-  const deckFull  = deck.length >= 5;
-  const isMandatory = enemy.type === 'normal';          // 通常戦闘は強制
-  const showDrawDiscard = isDraw && enemy.type !== 'boss'; // ボス以外の引き分けで削除可
+  const deckFull    = deck.length >= 3;
+  const noOptions   = options.length === 0;              // 重複なしで選択肢なし
+  const canAdd      = !deckFull && !noOptions;
+  const isMandatory = enemy.type === 'normal' && canAdd; // 通常戦闘は強制（追加できる場合のみ）
+  const showDrawDiscard = isDraw && enemy.type !== 'boss';
 
   // サブタイトル
   document.getElementById('reward-subtitle').textContent =
-    deckFull
-      ? '山札が満杯（5枚）のため追加できません'
-      : isMandatory
-        ? 'カードを1枚選んでデッキに加えよう（必須）'
-        : 'カードを1枚選んでデッキに加えよう';
+    deckFull    ? '山札が満杯（3枚）のため追加できません' :
+    noOptions   ? '追加できるカードがありません（重複なし）' :
+    isMandatory ? 'カードを1枚選んでデッキに加えよう（必須）' :
+                  'カードを1枚選んでデッキに加えよう';
   document.getElementById('reward-deck-note').textContent =
-    `現在のデッキ：${deck.length} / 5 枚`;
+    `現在のデッキ：${deck.length} / 3 枚`;
 
   // カード選択肢
   const optEl = document.getElementById('reward-options');
-  optEl.innerHTML = deckFull ? '' : options.map(c =>
+  optEl.innerHTML = canAdd ? options.map(c =>
     `<div class="card revealed reward-card" data-value="${c}">${c}</div>`
-  ).join('');
+  ).join('') : '';
 
   // 削除ボタン（引き分けボーナス）
   const drawDiscardBtn = document.getElementById('btn-reward-draw-discard');
   drawDiscardBtn.style.display = (showDrawDiscard && deck.length > 0) ? 'block' : 'none';
 
-  // スキップボタン：通常は非表示（強制）。デッキ満杯・非通常・ボスは表示
+  // スキップボタン：追加必須（通常敵かつ選択肢あり）のみ非表示
   const skipBtn = document.getElementById('btn-reward-skip');
-  const hideSkip = isMandatory && !deckFull;
-  skipBtn.style.display = hideSkip ? 'none' : 'inline-block';
+  skipBtn.style.display = isMandatory ? 'none' : 'inline-block';
 
   // イベント再設定（cloneNodeで古いリスナーを除去）
   const newSkip = skipBtn.cloneNode(true);
@@ -976,8 +988,8 @@ function showRewardScreen(enemyCard, enemy, isDraw, onDone) {
 
   optEl.querySelectorAll('.reward-card').forEach(cardEl => {
     cardEl.addEventListener('click', () => {
-      if (deck.length < 5) {
-        const val = parseInt(cardEl.dataset.value);
+      const val = parseInt(cardEl.dataset.value);
+      if (deck.length < 3 && !deck.includes(val)) {
         deck.push(val);
         addLog('log-add', `カード獲得：${val}（デッキ ${deck.length} 枚）`);
         renderStatus();
