@@ -939,16 +939,8 @@ function getRewardOptions(enemyCard, enemyType) {
     opts.delete(1);
     opts.delete(13);
   }
-
-  let filtered = [...opts].filter(v => v >= 1 && v <= 13 && !deck.includes(v));
-
-  if (deck.length >= 5) {
-    const deckMin = Math.min(...deck);
-    const deckMax = Math.max(...deck);
-    filtered = filtered.filter(v => v < deckMin || v > deckMax);
-  }
-
-  return filtered.slice(0, 3);
+  // 重複禁止：既にデッキにあるカードを除外
+  return [...opts].filter(v => v >= 1 && v <= 13 && !deck.includes(v)).slice(0, 3);
 }
 
 function proceedToNextStage() {
@@ -965,35 +957,24 @@ function showRewardScreen(enemyCard, enemy, isDraw, onDone) {
   const options   = getRewardOptions(enemyCard, enemy.type);
   const deckFull    = deck.length >= 5;
   const noOptions   = options.length === 0;
-  const canAdd      = !noOptions;  // 満杯でも強制トレードで追加可能
+  const canAdd      = !deckFull && !noOptions;
   const isMandatory = enemy.type === 'normal' && canAdd;
   const showDrawDiscard = isDraw && enemy.type !== 'boss';
 
-  // 満杯時のトレード対象を事前計算
-  const deckMin = deckFull ? Math.min(...deck) : null;
-  const deckMax = deckFull ? Math.max(...deck) : null;
-
   // サブタイトル
   document.getElementById('reward-subtitle').textContent =
-    noOptions && deckFull ? '追加できるカードがありません（満杯・範囲外なし）' :
-    noOptions             ? '追加できるカードがありません（重複なし）' :
-    deckFull              ? `デッキ満杯：最小(${deckMin})または最大(${deckMax})と強制交換` :
-    isMandatory           ? 'カードを1枚選んでデッキに加えよう（必須）' :
-                            'カードを1枚選んでデッキに加えよう';
+    deckFull    ? '山札が満杯（5枚）のため追加できません' :
+    noOptions   ? '追加できるカードがありません（重複なし）' :
+    isMandatory ? 'カードを1枚選んでデッキに加えよう（必須）' :
+                  'カードを1枚選んでデッキに加えよう';
   document.getElementById('reward-deck-note').textContent =
     `現在のデッキ：${deck.length} / 5 枚`;
 
-  // カード選択肢（満杯時は強制トレード対象を明示）
+  // カード選択肢
   const optEl = document.getElementById('reward-options');
-  optEl.innerHTML = canAdd ? options.map(c => {
-    let tradeLabel = '';
-    if (deckFull) {
-      tradeLabel = c < deckMin
-        ? `<div style="font-size:0.55rem;color:#ffd166;margin-top:2px">→ ${deckMin}と交換</div>`
-        : `<div style="font-size:0.55rem;color:#ffd166;margin-top:2px">→ ${deckMax}と交換</div>`;
-    }
-    return `<div class="card revealed reward-card" data-value="${c}" style="height:auto;padding:12px 8px;display:flex;flex-direction:column;align-items:center;">${c}${tradeLabel}</div>`;
-  }).join('') : '';
+  optEl.innerHTML = canAdd ? options.map(c =>
+    `<div class="card revealed reward-card" data-value="${c}">${c}</div>`
+  ).join('') : '';
 
   // 削除ボタン（引き分けボーナス）
   const drawDiscardBtn = document.getElementById('btn-reward-draw-discard');
@@ -1017,17 +998,11 @@ function showRewardScreen(enemyCard, enemy, isDraw, onDone) {
   optEl.querySelectorAll('.reward-card').forEach(cardEl => {
     cardEl.addEventListener('click', () => {
       const val = parseInt(cardEl.dataset.value);
-      if (deckFull) {
-        // 強制トレード：新カードが最小未満→最小と交換、最大超→最大と交換
-        const tradeVal = val < deckMin ? deckMin : deckMax;
-        const tradeIdx = deck.indexOf(tradeVal);
-        deck.splice(tradeIdx, 1, val);
-        addLog('log-add', `強制交換：${tradeVal} → ${val}（デッキ ${deck.length} 枚）`);
-      } else if (!deck.includes(val)) {
+      if (deck.length < 5 && !deck.includes(val)) {
         deck.push(val);
         addLog('log-add', `カード獲得：${val}（デッキ ${deck.length} 枚）`);
+        renderStatus();
       }
-      renderStatus();
       closeReward();
     });
   });
